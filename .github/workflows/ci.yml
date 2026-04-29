@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Gleam
+      uses: erlef/setup-beam@v1
+      with:
+        gleam-version: "1.16.0"
+        otp-version: "26.0"
+        rebar3-version: "3"
+    
+    - name: Download dependencies
+      run: gleam deps download
+    
+    - name: Run tests
+      run: gleam test
+    
+    - name: Build documentation
+      run: gleam docs build
