@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Initial release of `gwitchel`
+- Initial release of `twitch_eventsub`
 - EventSub WebSocket client for Twitch
 - Automatic reconnect with exponential backoff (1s → 60s max, 10 attempts)
 - Keepalive timeout monitoring
@@ -19,4 +19,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Type-safe error handling with custom error types
 - Graceful shutdown support
 
-[0.1.0]: https://github.com/ksnitsky/gwitchel/releases/tag/v0.1.0
+[0.1.0]: https://github.com/ksnitsky/twitch_eventsub/releases/tag/v0.1.0

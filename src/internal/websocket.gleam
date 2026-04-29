@@ -111,11 +111,11 @@ fn handle_twitch_text(state: WsState, text: String) -> stratus.Next(WsState, Use
       stratus.continue(state)
     }
     Ok(session.Unknown(msg_type)) -> {
-      logging.log(logging.Debug, "gwitchel: Unknown message type: " <> msg_type)
+      logging.log(logging.Debug, "twitch_eventsub: Unknown message type: " <> msg_type)
       stratus.continue(state)
     }
     Error(err) -> {
-      logging.log(logging.Warning, "gwitchel: Failed to parse message: " <> string.inspect(err))
+      logging.log(logging.Warning, "twitch_eventsub: Failed to parse message: " <> string.inspect(err))
       stratus.continue(state)
     }
   }

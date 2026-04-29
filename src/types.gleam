@@ -50,7 +50,7 @@ pub type MessageFragment {
   Cheermote(text: String, prefix: String, bits: Int, tier: Int)
 }
 
-/// Errors that can occur when using gwitchel.
+/// Errors that can occur when using twitch_eventsub.
 pub type Error {
   /// Failed to establish WebSocket connection.
   WebSocketError(String)

@@ -1,11 +1,11 @@
-name = "gwitchel"
+name = "twitch_eventsub"
 version = "0.1.0"
 description = "A robust Twitch EventSub WebSocket client library for Gleam with auto-reconnect and keepalive monitoring."
 licences = ["Apache-2.0"]
-repository = { type = "github", user = "ksnitsky", repo = "gwitchel" }
+repository = { type = "github", user = "ksnitsky", repo = "twitch_eventsub" }
 links = [
-  { title = "Hex", href = "https://hex.pm/packages/gwitchel" },
-  { title = "API Docs", href = "https://hexdocs.pm/gwitchel" },
+  { title = "Hex", href = "https://hex.pm/packages/twitch_eventsub" },
+  { title = "API Docs", href = "https://hexdocs.pm/twitch_eventsub" },
 ]
 
 [dependencies]

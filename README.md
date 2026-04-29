@@ -1,4 +1,4 @@
-# gwitchel
+# twitch_eventsub
 
 A robust Twitch EventSub WebSocket client library for Gleam.
 
@@ -16,13 +16,13 @@ Handles connection management, automatic reconnects with exponential backoff, ke
 ## Installation
 
 ```sh
-gleam add gwitchel
+gleam add twitch_eventsub
 ```
 
 ## Quick Start
 
 ```gleam
-import gwitchel
+import twitch_eventsub
 import types
 
 pub fn main() {
@@ -42,7 +42,7 @@ pub fn main() {
     }
   }
 
-  let assert Ok(conn) = gwitchel.connect(config, handler)
+  let assert Ok(conn) = twitch_eventsub.connect(config, handler)
 
   let sub = types.Subscription(
     type_: "channel.chat.message",
@@ -53,7 +53,7 @@ pub fn main() {
     ],
   )
 
-  let assert Ok(_) = gwitchel.subscribe(conn, sub)
+  let assert Ok(_) = twitch_eventsub.subscribe(conn, sub)
 
   // Run forever (or until disconnect)
   process.sleep_forever()
@@ -161,13 +161,13 @@ let handler = fn(event) {
 
 ```gleam
 // Disconnect and clean up resources
-gwitchel.disconnect(conn)
+twitch_eventsub.disconnect(conn)
 ```
 
 ### Error Handling
 
 ```gleam
-case gwitchel.connect(config, handler) {
+case twitch_eventsub.connect(config, handler) {
   Ok(conn) -> {
     // Use connection...
   }
@@ -203,7 +203,7 @@ Any EventSub event type can be received via the `types.Other(type_, payload)` va
 ```
 User Code
     ↓
-gwitchel.gleam  (public API: connect, subscribe, disconnect)
+twitch_eventsub.gleam  (public API: connect, subscribe, disconnect)
     ↓
 internal/manager.gleam  (OTP actor: reconnect, keepalive, subscriptions)
     ↓

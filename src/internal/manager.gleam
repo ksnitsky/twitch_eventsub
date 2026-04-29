@@ -110,14 +110,14 @@ pub fn start(
       // Attempt initial WebSocket connection
       case websocket.start(config, handler, ws_subject, "wss://eventsub.wss.twitch.tv/ws") {
         Ok(ws) -> {
-          logging.log(logging.Info, "gwitchel: WebSocket connection started")
+          logging.log(logging.Info, "twitch_eventsub: WebSocket connection started")
           actor.initialised(State(..state, ws_subject: Some(ws)))
           |> actor.selecting(selector)
           |> actor.returning(subject)
           |> Ok
         }
         Error(err) -> {
-          logging.log(logging.Error, "gwitchel: Failed to start WebSocket: " <> string.inspect(err))
+          logging.log(logging.Error, "twitch_eventsub: Failed to start WebSocket: " <> string.inspect(err))
           let backoff = initial_reconnect_backoff_ms
           let timer = process.send_after(subject, backoff, ReconnectTimer)
           actor.initialised(State(..state, reconnect_timer: Some(timer), reconnect_attempts: 1))
@@ -135,13 +135,13 @@ pub fn start(
       case process.receive(ready_subject, 5000) {
         Ok(_) -> Ok(Connection(started.data))
         Error(_) -> {
-          logging.log(logging.Error, "gwitchel: Timeout waiting for session_welcome")
+          logging.log(logging.Error, "twitch_eventsub: Timeout waiting for session_welcome")
           Error(WebSocketError("Timeout waiting for session_welcome from Twitch"))
         }
       }
     }
     Error(err) -> {
-      logging.log(logging.Error, "gwitchel: Failed to start manager: " <> string.inspect(err))
+      logging.log(logging.Error, "twitch_eventsub: Failed to start manager: " <> string.inspect(err))
       Error(WebSocketError("Failed to start manager actor"))
     }
   }
@@ -283,7 +283,7 @@ fn handle_list(
 }
 
 fn handle_stop(state: State) -> actor.Next(State, Msg) {
-  logging.log(logging.Info, "gwitchel: Stopping connection")
+  logging.log(logging.Info, "twitch_eventsub: Stopping connection")
 
   // Cancel all timers
   let _ = option.map(state.keepalive_timer, process.cancel_timer)
@@ -298,7 +298,7 @@ fn handle_stop(state: State) -> actor.Next(State, Msg) {
 fn handle_ws_msg(state: State, msg: WsToManagerMsg) -> actor.Next(State, Msg) {
   case msg {
     WsConnected(session_id, keepalive_seconds) -> {
-      logging.log(logging.Debug, "gwitchel: Session connected: " <> session_id)
+      logging.log(logging.Debug, "twitch_eventsub: Session connected: " <> session_id)
 
       // Signal to the parent process that we are ready
       case state.ready_subject {
@@ -339,7 +339,7 @@ fn handle_ws_msg(state: State, msg: WsToManagerMsg) -> actor.Next(State, Msg) {
     }
 
     WsReconnect(url) -> {
-      logging.log(logging.Info, "gwitchel: Reconnect requested to: " <> url)
+      logging.log(logging.Info, "twitch_eventsub: Reconnect requested to: " <> url)
       actor.continue(State(..state, reconnect_url: Some(url)))
     }
 
@@ -349,7 +349,7 @@ fn handle_ws_msg(state: State, msg: WsToManagerMsg) -> actor.Next(State, Msg) {
     }
 
     WsClosed(reason) -> {
-      logging.log(logging.Info, "gwitchel: WebSocket closed: " <> string.inspect(reason))
+      logging.log(logging.Info, "twitch_eventsub: WebSocket closed: " <> string.inspect(reason))
 
       // Cancel keepalive timer
       let _ = option.map(state.keepalive_timer, process.cancel_timer)
@@ -357,7 +357,7 @@ fn handle_ws_msg(state: State, msg: WsToManagerMsg) -> actor.Next(State, Msg) {
       case state.reconnect_url {
         Some(url) -> {
           // Server-initiated reconnect (session_reconnect)
-          logging.log(logging.Info, "gwitchel: Performing server-initiated reconnect")
+          logging.log(logging.Info, "twitch_eventsub: Performing server-initiated reconnect")
           do_connect_async(state, url)
           actor.continue(State(..state, reconnect_url: None, ws_subject: None, is_connected: False))
         }
@@ -376,11 +376,11 @@ fn handle_ws_started(
 ) -> actor.Next(State, Msg) {
   case result {
     Ok(ws_subject) -> {
-      logging.log(logging.Debug, "gwitchel: WebSocket actor started")
+      logging.log(logging.Debug, "twitch_eventsub: WebSocket actor started")
       actor.continue(State(..state, ws_subject: Some(ws_subject)))
     }
     Error(err) -> {
-      logging.log(logging.Error, "gwitchel: Failed to start WebSocket actor: " <> string.inspect(err))
+      logging.log(logging.Error, "twitch_eventsub: Failed to start WebSocket actor: " <> string.inspect(err))
       schedule_reconnect(State(..state, ws_subject: None, is_connected: False))
     }
   }
@@ -388,13 +388,13 @@ fn handle_ws_started(
 
 fn handle_reconnect_timer(state: State) -> actor.Next(State, Msg) {
   let url = option.unwrap(state.reconnect_url, "wss://eventsub.wss.twitch.tv/ws")
-  logging.log(logging.Info, "gwitchel: Reconnect timer fired, connecting to: " <> url)
+  logging.log(logging.Info, "twitch_eventsub: Reconnect timer fired, connecting to: " <> url)
   do_connect_async(state, url)
   actor.continue(state)
 }
 
 fn handle_keepalive_expired(state: State) -> actor.Next(State, Msg) {
-  logging.log(logging.Error, "gwitchel: Keepalive timeout expired, forcing reconnect")
+  logging.log(logging.Error, "twitch_eventsub: Keepalive timeout expired, forcing reconnect")
 
   // Stop current WebSocket actor
   option.map(state.ws_subject, websocket.stop)
@@ -419,12 +419,12 @@ fn do_connect_async(state: State, url: String) -> Nil {
 fn schedule_reconnect(state: State) -> actor.Next(State, Msg) {
   case state.reconnect_attempts >= state.max_reconnect_attempts {
     True -> {
-      logging.log(logging.Error, "gwitchel: Max reconnect attempts exceeded")
+      logging.log(logging.Error, "twitch_eventsub: Max reconnect attempts exceeded")
       actor.stop()
     }
     False -> {
       let backoff = calculate_backoff(state.reconnect_attempts)
-      logging.log(logging.Info, "gwitchel: Scheduling reconnect in " <> int.to_string(backoff) <> "ms")
+      logging.log(logging.Info, "twitch_eventsub: Scheduling reconnect in " <> int.to_string(backoff) <> "ms")
       let timer = process.send_after(state.self, backoff, ReconnectTimer)
       actor.continue(State(
         ..state,
@@ -458,7 +458,7 @@ fn resubscribe_all(state: State) -> State {
             Error(err) -> {
               logging.log(
                 logging.Warning,
-                "gwitchel: Resubscription failed for "
+                "twitch_eventsub: Resubscription failed for "
                   <> sub.type_
                   <> ": "
                   <> string.inspect(err),
