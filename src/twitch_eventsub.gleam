@@ -1,5 +1,7 @@
 import internal/manager
-import types.{type Config, type Error, type Event, type Subscription, Subscription}
+import types.{
+  type Config, type Error, type Event, type Subscription, Subscription,
+}
 
 pub type Connection =
   manager.Connection
@@ -57,14 +59,10 @@ pub fn subscribe_chat(
   user_id: String,
 ) -> Result(Nil, Error) {
   let sub =
-    Subscription(
-      type_: "channel.chat.message",
-      version: "1",
-      condition: [
-        #("broadcaster_user_id", broadcaster_user_id),
-        #("user_id", user_id),
-      ],
-    )
+    Subscription(type_: "channel.chat.message", version: "1", condition: [
+      #("broadcaster_user_id", broadcaster_user_id),
+      #("user_id", user_id),
+    ])
   subscribe(connection, sub)
 }
 
@@ -77,14 +75,10 @@ pub fn subscribe_follows(
   moderator_user_id: String,
 ) -> Result(Nil, Error) {
   let sub =
-    Subscription(
-      type_: "channel.follow",
-      version: "2",
-      condition: [
-        #("broadcaster_user_id", broadcaster_user_id),
-        #("moderator_user_id", moderator_user_id),
-      ],
-    )
+    Subscription(type_: "channel.follow", version: "2", condition: [
+      #("broadcaster_user_id", broadcaster_user_id),
+      #("moderator_user_id", moderator_user_id),
+    ])
   subscribe(connection, sub)
 }
 

@@ -1,9 +1,7 @@
 import gleam/string
 import gleeunit/should
 import internal/session
-import types.{
-  ChatMessage, InvalidMessage, Message, MessageContent, Other,
-}
+import types.{ChatMessage, InvalidMessage, Message, MessageContent, Other}
 
 // --- Session parsing tests ---
 
@@ -68,43 +66,49 @@ pub fn parse_invalid_json_test() {
 }
 
 pub fn parse_unknown_message_type_test() {
-  session.parse_message("{\"metadata\":{\"message_type\":\"session_revocation\"},\"payload\":{}}")
+  session.parse_message(
+    "{\"metadata\":{\"message_type\":\"session_revocation\"},\"payload\":{}}",
+  )
   |> should.be_ok
   |> should.equal(session.Unknown("session_revocation"))
 }
 
 pub fn parse_missing_subscription_type_test() {
-  let json = "{\"metadata\":{\"message_id\":\"msg-id\",\"message_type\":\"notification\",\"message_timestamp\":\"2024-01-01T00:00:00.000000000Z\"},\"payload\":{\"event\":{}}}"
+  let json =
+    "{\"metadata\":{\"message_id\":\"msg-id\",\"message_type\":\"notification\",\"message_timestamp\":\"2024-01-01T00:00:00.000000000Z\"},\"payload\":{\"event\":{}}}"
   session.parse_message(json)
   |> should.be_error
-  |> should.equal(InvalidMessage("Missing subscription_type in notification metadata"))
+  |> should.equal(InvalidMessage(
+    "Missing subscription_type in notification metadata",
+  ))
 }
 
 pub fn parse_welcome_missing_session_test() {
-  let json = "{\"metadata\":{\"message_type\":\"session_welcome\"},\"payload\":{}}"
+  let json =
+    "{\"metadata\":{\"message_type\":\"session_welcome\"},\"payload\":{}}"
   session.parse_message(json)
   |> should.be_error
   |> should.equal(InvalidMessage("Missing session id in welcome payload"))
 }
 
 pub fn parse_reconnect_missing_url_test() {
-  let json = "{\"metadata\":{\"message_type\":\"session_reconnect\"},\"payload\":{\"session\":{}}}"
+  let json =
+    "{\"metadata\":{\"message_type\":\"session_reconnect\"},\"payload\":{\"session\":{}}}"
   session.parse_message(json)
   |> should.be_error
   |> should.equal(InvalidMessage("Missing reconnect_url in reconnect payload"))
 }
 
 pub fn parse_chat_message_with_special_chars_test() {
-  let json = "{\"metadata\":{\"message_id\":\"msg-id\",\"message_type\":\"notification\",\"message_timestamp\":\"2024-01-01T00:00:00.000000000Z\",\"subscription_type\":\"channel.chat.message\",\"subscription_version\":\"1\"},\"payload\":{\"subscription\":{},\"event\":{\"broadcaster_user_id\":\"123\",\"broadcaster_user_login\":\"testbroadcaster\",\"chatter_user_id\":\"456\",\"chatter_user_login\":\"testchatter\",\"message\":{\"text\":\"Hello :) \\u2764\\u2764\\u2764\",\"fragments\":[]}}}}"
+  let json =
+    "{\"metadata\":{\"message_id\":\"msg-id\",\"message_type\":\"notification\",\"message_timestamp\":\"2024-01-01T00:00:00.000000000Z\",\"subscription_type\":\"channel.chat.message\",\"subscription_version\":\"1\"},\"payload\":{\"subscription\":{},\"event\":{\"broadcaster_user_id\":\"123\",\"broadcaster_user_login\":\"testbroadcaster\",\"chatter_user_id\":\"456\",\"chatter_user_login\":\"testchatter\",\"message\":{\"text\":\"Hello :) \\u2764\\u2764\\u2764\",\"fragments\":[]}}}}"
 
   let assert Ok(session.Notification("channel.chat.message", event)) =
     session.parse_message(json)
 
   case event {
-    Message(ChatMessage(
-      message: MessageContent(text: "Hello :) ❤❤❤", ..),
-      ..
-    )) -> Nil
+    Message(ChatMessage(message: MessageContent(text: "Hello :) ❤❤❤", ..), ..)) ->
+      Nil
     other -> panic as { "Unexpected event: " <> string.inspect(other) }
   }
 }

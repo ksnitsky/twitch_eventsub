@@ -1,7 +1,7 @@
 import gleam/dynamic/decode
 import types.{
-  type ChatMessage, type MessageContent, type MessageFragment, Cheermote,
-  ChatMessage, Emote, Mention, MessageContent, Text,
+  type ChatMessage, type MessageContent, type MessageFragment, ChatMessage,
+  Cheermote, Emote, Mention, MessageContent, Text,
 }
 
 /// Decoder for the contents of `payload.session` in `session_welcome`.
@@ -83,9 +83,11 @@ fn nullable_field(
 }
 
 fn emote_fragment(text: String) -> decode.Decoder(MessageFragment) {
-  use #(id, set_id) <- decode.then(
-    nullable_field("emote", #("", ""), emote_payload()),
-  )
+  use #(id, set_id) <- decode.then(nullable_field(
+    "emote",
+    #("", ""),
+    emote_payload(),
+  ))
   decode.success(Emote(text:, id:, set_id:))
 }
 
@@ -96,9 +98,11 @@ fn emote_payload() -> decode.Decoder(#(String, String)) {
 }
 
 fn mention_fragment(text: String) -> decode.Decoder(MessageFragment) {
-  use #(user_id, user_login) <- decode.then(
-    nullable_field("mention", #("", ""), mention_payload()),
-  )
+  use #(user_id, user_login) <- decode.then(nullable_field(
+    "mention",
+    #("", ""),
+    mention_payload(),
+  ))
   decode.success(Mention(text:, user_id:, user_login:))
 }
 
@@ -109,9 +113,11 @@ fn mention_payload() -> decode.Decoder(#(String, String)) {
 }
 
 fn cheermote_fragment(text: String) -> decode.Decoder(MessageFragment) {
-  use #(prefix, bits, tier) <- decode.then(
-    nullable_field("cheermote", #("", 0, 0), cheermote_payload()),
-  )
+  use #(prefix, bits, tier) <- decode.then(nullable_field(
+    "cheermote",
+    #("", 0, 0),
+    cheermote_payload(),
+  ))
   decode.success(Cheermote(text:, prefix:, bits:, tier:))
 }
 

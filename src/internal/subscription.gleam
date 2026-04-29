@@ -160,7 +160,11 @@ pub fn parse_first_subscription_id(body: String) -> Result(String, Error) {
 /// Parse the list of subscription IDs from a Helix list response.
 pub fn parse_subscription_ids(body: String) -> Result(List(String), Error) {
   let decoder =
-    decode.field("data", decode.list(decoders.subscription_id()), decode.success)
+    decode.field(
+      "data",
+      decode.list(decoders.subscription_id()),
+      decode.success,
+    )
   json.parse(body, decoder)
   |> result.map_error(fn(err) {
     InvalidMessage(

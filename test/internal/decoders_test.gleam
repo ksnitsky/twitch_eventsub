@@ -60,7 +60,12 @@ pub fn fragment_cheermote_test() {
     "{\"type\":\"cheermote\",\"text\":\"Cheer100\",\"cheermote\":{\"prefix\":\"Cheer\",\"bits\":100,\"tier\":1},\"emote\":null,\"mention\":null}"
   json.parse(json, decoders.message_fragment())
   |> should.be_ok
-  |> should.equal(Cheermote(text: "Cheer100", prefix: "Cheer", bits: 100, tier: 1))
+  |> should.equal(Cheermote(
+    text: "Cheer100",
+    prefix: "Cheer",
+    bits: 100,
+    tier: 1,
+  ))
 }
 
 pub fn fragment_unknown_type_falls_back_to_text_test() {
@@ -84,15 +89,14 @@ pub fn chat_message_with_mixed_fragments_test() {
 
   let assert Ok(chat) = json.parse(json, decoders.chat_message())
   chat.message
-  |> should.equal(MessageContent(
-    text: "hi @alice PogChamp",
-    fragments: [
+  |> should.equal(
+    MessageContent(text: "hi @alice PogChamp", fragments: [
       Text(text: "hi "),
       Mention(text: "@alice", user_id: "42", user_login: "alice"),
       Text(text: " "),
       Emote(text: "PogChamp", id: "e1", set_id: "s1"),
-    ],
-  ))
+    ]),
+  )
 }
 
 // --- subscription_id ---

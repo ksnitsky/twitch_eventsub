@@ -5,13 +5,15 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import gleam/uri
+import internal/messages.{
+  type WsToManagerMsg, WsClosed, WsConnected, WsEvent, WsKeepalive, WsReconnect,
+}
+import internal/session
 import logging
 import stratus
 import types.{
   type Config, type Error, type Event, type Subscription, WebSocketError,
 }
-import internal/messages.{type WsToManagerMsg, WsClosed, WsConnected, WsEvent, WsKeepalive, WsReconnect}
-import internal/session
 
 // --- Public types ---
 
@@ -50,7 +52,8 @@ pub fn start(
 
   case stratus.start(builder) {
     Ok(started) -> Ok(started.data)
-    Error(err) -> Error(WebSocketError("Failed to start WebSocket: " <> string.inspect(err)))
+    Error(err) ->
+      Error(WebSocketError("Failed to start WebSocket: " <> string.inspect(err)))
   }
 }
 
@@ -86,13 +89,17 @@ fn handle_message(
 ) -> stratus.Next(WsState, UserMsg) {
   case msg {
     stratus.Text(text) -> handle_twitch_text(state, text)
-    stratus.User(Subscribe(sub, reply_to)) -> handle_subscribe(state, sub, reply_to)
+    stratus.User(Subscribe(sub, reply_to)) ->
+      handle_subscribe(state, sub, reply_to)
     stratus.User(Stop) -> stratus.stop()
     _ -> stratus.continue(state)
   }
 }
 
-fn handle_twitch_text(state: WsState, text: String) -> stratus.Next(WsState, UserMsg) {
+fn handle_twitch_text(
+  state: WsState,
+  text: String,
+) -> stratus.Next(WsState, UserMsg) {
   case session.parse_message(text) {
     Ok(session.Welcome(session_id, keepalive_seconds)) -> {
       process.send(state.manager, WsConnected(session_id, keepalive_seconds))
@@ -111,11 +118,17 @@ fn handle_twitch_text(state: WsState, text: String) -> stratus.Next(WsState, Use
       stratus.continue(state)
     }
     Ok(session.Unknown(msg_type)) -> {
-      logging.log(logging.Debug, "twitch_eventsub: Unknown message type: " <> msg_type)
+      logging.log(
+        logging.Debug,
+        "twitch_eventsub: Unknown message type: " <> msg_type,
+      )
       stratus.continue(state)
     }
     Error(err) -> {
-      logging.log(logging.Warning, "twitch_eventsub: Failed to parse message: " <> string.inspect(err))
+      logging.log(
+        logging.Warning,
+        "twitch_eventsub: Failed to parse message: " <> string.inspect(err),
+      )
       stratus.continue(state)
     }
   }

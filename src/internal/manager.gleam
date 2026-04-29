@@ -5,17 +5,17 @@ import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
 import gleam/result
 import gleam/string
+import internal/messages.{
+  type WsToManagerMsg, WsClosed, WsConnected, WsEvent, WsKeepalive, WsReconnect,
+}
+import internal/subscription
+import internal/websocket
 import logging
 import stratus
 import types.{
   type Config, type Error, type Event, type Subscription, SessionClosed,
   SubscriptionNotFound, WebSocketError,
 }
-import internal/messages.{
-  type WsToManagerMsg, WsClosed, WsConnected, WsEvent, WsKeepalive, WsReconnect,
-}
-import internal/websocket
-import internal/subscription
 
 // --- Public types ---
 
@@ -64,9 +64,12 @@ pub type State {
 }
 
 const max_reconnect_backoff_ms = 60_000
-const initial_reconnect_backoff_ms = 1_000
+
+const initial_reconnect_backoff_ms = 1000
+
 const default_keepalive_seconds = 10
-const keepalive_grace_ms = 2_000
+
+const keepalive_grace_ms = 2000
 
 // --- Public API ---
 
@@ -88,39 +91,56 @@ pub fn start(
         |> process.select(subject)
         |> process.merge_selector(
           process.new_selector()
-          |> process.select_map(ws_subject, fn(ws_msg) { FromWs(ws_msg) })
+          |> process.select_map(ws_subject, fn(ws_msg) { FromWs(ws_msg) }),
         )
 
-      let state = State(
-        config: config,
-        handler: handler,
-        self: subject,
-        ws_subject: None,
-        session_id: None,
-        subscriptions: [],
-        reconnect_url: None,
-        keepalive_timer: None,
-        reconnect_timer: None,
-        reconnect_attempts: 0,
-        max_reconnect_attempts: 10,
-        is_connected: False,
-        ready_subject: Some(ready_subject),
-      )
+      let state =
+        State(
+          config: config,
+          handler: handler,
+          self: subject,
+          ws_subject: None,
+          session_id: None,
+          subscriptions: [],
+          reconnect_url: None,
+          keepalive_timer: None,
+          reconnect_timer: None,
+          reconnect_attempts: 0,
+          max_reconnect_attempts: 10,
+          is_connected: False,
+          ready_subject: Some(ready_subject),
+        )
 
       // Attempt initial WebSocket connection
-      case websocket.start(config, handler, ws_subject, "wss://eventsub.wss.twitch.tv/ws") {
+      case
+        websocket.start(
+          config,
+          handler,
+          ws_subject,
+          "wss://eventsub.wss.twitch.tv/ws",
+        )
+      {
         Ok(ws) -> {
-          logging.log(logging.Info, "twitch_eventsub: WebSocket connection started")
+          logging.log(
+            logging.Info,
+            "twitch_eventsub: WebSocket connection started",
+          )
           actor.initialised(State(..state, ws_subject: Some(ws)))
           |> actor.selecting(selector)
           |> actor.returning(subject)
           |> Ok
         }
         Error(err) -> {
-          logging.log(logging.Error, "twitch_eventsub: Failed to start WebSocket: " <> string.inspect(err))
+          logging.log(
+            logging.Error,
+            "twitch_eventsub: Failed to start WebSocket: "
+              <> string.inspect(err),
+          )
           let backoff = initial_reconnect_backoff_ms
           let timer = process.send_after(subject, backoff, ReconnectTimer)
-          actor.initialised(State(..state, reconnect_timer: Some(timer), reconnect_attempts: 1))
+          actor.initialised(
+            State(..state, reconnect_timer: Some(timer), reconnect_attempts: 1),
+          )
           |> actor.selecting(selector)
           |> actor.returning(subject)
           |> Ok
@@ -135,13 +155,21 @@ pub fn start(
       case process.receive(ready_subject, 5000) {
         Ok(_) -> Ok(Connection(started.data))
         Error(_) -> {
-          logging.log(logging.Error, "twitch_eventsub: Timeout waiting for session_welcome")
-          Error(WebSocketError("Timeout waiting for session_welcome from Twitch"))
+          logging.log(
+            logging.Error,
+            "twitch_eventsub: Timeout waiting for session_welcome",
+          )
+          Error(WebSocketError(
+            "Timeout waiting for session_welcome from Twitch",
+          ))
         }
       }
     }
     Error(err) -> {
-      logging.log(logging.Error, "twitch_eventsub: Failed to start manager: " <> string.inspect(err))
+      logging.log(
+        logging.Error,
+        "twitch_eventsub: Failed to start manager: " <> string.inspect(err),
+      )
       Error(WebSocketError("Failed to start manager actor"))
     }
   }
@@ -298,7 +326,10 @@ fn handle_stop(state: State) -> actor.Next(State, Msg) {
 fn handle_ws_msg(state: State, msg: WsToManagerMsg) -> actor.Next(State, Msg) {
   case msg {
     WsConnected(session_id, keepalive_seconds) -> {
-      logging.log(logging.Debug, "twitch_eventsub: Session connected: " <> session_id)
+      logging.log(
+        logging.Debug,
+        "twitch_eventsub: Session connected: " <> session_id,
+      )
 
       // Signal to the parent process that we are ready
       case state.ready_subject {
@@ -313,15 +344,16 @@ fn handle_ws_msg(state: State, msg: WsToManagerMsg) -> actor.Next(State, Msg) {
       let timeout_ms = keepalive_seconds * 1000 + keepalive_grace_ms
       let timer = process.send_after(state.self, timeout_ms, KeepaliveExpired)
 
-      let new_state = State(
-        ..state,
-        session_id: Some(session_id),
-        keepalive_timer: Some(timer),
-        reconnect_timer: None,
-        reconnect_attempts: 0,
-        is_connected: True,
-        ready_subject: None,
-      )
+      let new_state =
+        State(
+          ..state,
+          session_id: Some(session_id),
+          keepalive_timer: Some(timer),
+          reconnect_timer: None,
+          reconnect_attempts: 0,
+          is_connected: True,
+          ready_subject: None,
+        )
 
       // Re-subscribe to all previously registered subscriptions
       let new_state = resubscribe_all(new_state)
@@ -339,7 +371,10 @@ fn handle_ws_msg(state: State, msg: WsToManagerMsg) -> actor.Next(State, Msg) {
     }
 
     WsReconnect(url) -> {
-      logging.log(logging.Info, "twitch_eventsub: Reconnect requested to: " <> url)
+      logging.log(
+        logging.Info,
+        "twitch_eventsub: Reconnect requested to: " <> url,
+      )
       actor.continue(State(..state, reconnect_url: Some(url)))
     }
 
@@ -349,7 +384,10 @@ fn handle_ws_msg(state: State, msg: WsToManagerMsg) -> actor.Next(State, Msg) {
     }
 
     WsClosed(reason) -> {
-      logging.log(logging.Info, "twitch_eventsub: WebSocket closed: " <> string.inspect(reason))
+      logging.log(
+        logging.Info,
+        "twitch_eventsub: WebSocket closed: " <> string.inspect(reason),
+      )
 
       // Cancel keepalive timer
       let _ = option.map(state.keepalive_timer, process.cancel_timer)
@@ -357,9 +395,19 @@ fn handle_ws_msg(state: State, msg: WsToManagerMsg) -> actor.Next(State, Msg) {
       case state.reconnect_url {
         Some(url) -> {
           // Server-initiated reconnect (session_reconnect)
-          logging.log(logging.Info, "twitch_eventsub: Performing server-initiated reconnect")
+          logging.log(
+            logging.Info,
+            "twitch_eventsub: Performing server-initiated reconnect",
+          )
           do_connect_async(state, url)
-          actor.continue(State(..state, reconnect_url: None, ws_subject: None, is_connected: False))
+          actor.continue(
+            State(
+              ..state,
+              reconnect_url: None,
+              ws_subject: None,
+              is_connected: False,
+            ),
+          )
         }
         None -> {
           // Unexpected disconnect — schedule reconnect with backoff
@@ -380,21 +428,32 @@ fn handle_ws_started(
       actor.continue(State(..state, ws_subject: Some(ws_subject)))
     }
     Error(err) -> {
-      logging.log(logging.Error, "twitch_eventsub: Failed to start WebSocket actor: " <> string.inspect(err))
+      logging.log(
+        logging.Error,
+        "twitch_eventsub: Failed to start WebSocket actor: "
+          <> string.inspect(err),
+      )
       schedule_reconnect(State(..state, ws_subject: None, is_connected: False))
     }
   }
 }
 
 fn handle_reconnect_timer(state: State) -> actor.Next(State, Msg) {
-  let url = option.unwrap(state.reconnect_url, "wss://eventsub.wss.twitch.tv/ws")
-  logging.log(logging.Info, "twitch_eventsub: Reconnect timer fired, connecting to: " <> url)
+  let url =
+    option.unwrap(state.reconnect_url, "wss://eventsub.wss.twitch.tv/ws")
+  logging.log(
+    logging.Info,
+    "twitch_eventsub: Reconnect timer fired, connecting to: " <> url,
+  )
   do_connect_async(state, url)
   actor.continue(state)
 }
 
 fn handle_keepalive_expired(state: State) -> actor.Next(State, Msg) {
-  logging.log(logging.Error, "twitch_eventsub: Keepalive timeout expired, forcing reconnect")
+  logging.log(
+    logging.Error,
+    "twitch_eventsub: Keepalive timeout expired, forcing reconnect",
+  )
 
   // Stop current WebSocket actor
   option.map(state.ws_subject, websocket.stop)
@@ -407,32 +466,43 @@ fn handle_keepalive_expired(state: State) -> actor.Next(State, Msg) {
 fn do_connect_async(state: State, url: String) -> Nil {
   // Start WebSocket in a separate process to avoid blocking the manager
   let ws_subject = process.new_subject()
-  let _ = process.spawn_unlinked(fn() {
-    case websocket.start(state.config, state.handler, ws_subject, url) {
-      Ok(ws) -> process.send(state.self, WsStarted(Ok(ws)))
-      Error(err) -> process.send(state.self, WsStarted(Error(err)))
-    }
-  })
+  let _ =
+    process.spawn_unlinked(fn() {
+      case websocket.start(state.config, state.handler, ws_subject, url) {
+        Ok(ws) -> process.send(state.self, WsStarted(Ok(ws)))
+        Error(err) -> process.send(state.self, WsStarted(Error(err)))
+      }
+    })
   Nil
 }
 
 fn schedule_reconnect(state: State) -> actor.Next(State, Msg) {
   case state.reconnect_attempts >= state.max_reconnect_attempts {
     True -> {
-      logging.log(logging.Error, "twitch_eventsub: Max reconnect attempts exceeded")
+      logging.log(
+        logging.Error,
+        "twitch_eventsub: Max reconnect attempts exceeded",
+      )
       actor.stop()
     }
     False -> {
       let backoff = calculate_backoff(state.reconnect_attempts)
-      logging.log(logging.Info, "twitch_eventsub: Scheduling reconnect in " <> int.to_string(backoff) <> "ms")
+      logging.log(
+        logging.Info,
+        "twitch_eventsub: Scheduling reconnect in "
+          <> int.to_string(backoff)
+          <> "ms",
+      )
       let timer = process.send_after(state.self, backoff, ReconnectTimer)
-      actor.continue(State(
-        ..state,
-        reconnect_timer: Some(timer),
-        reconnect_attempts: state.reconnect_attempts + 1,
-        ws_subject: None,
-        is_connected: False,
-      ))
+      actor.continue(
+        State(
+          ..state,
+          reconnect_timer: Some(timer),
+          reconnect_attempts: state.reconnect_attempts + 1,
+          ws_subject: None,
+          is_connected: False,
+        ),
+      )
     }
   }
 }

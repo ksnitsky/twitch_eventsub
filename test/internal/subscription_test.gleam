@@ -7,14 +7,11 @@ import types.{
 // --- build_subscription_body ---
 
 pub fn build_subscription_body_test() {
-  let sub = Subscription(
-    type_: "channel.chat.message",
-    version: "1",
-    condition: [
+  let sub =
+    Subscription(type_: "channel.chat.message", version: "1", condition: [
       #("broadcaster_user_id", "123"),
       #("user_id", "456"),
-    ],
-  )
+    ])
 
   let body = subscription.build_subscription_body(sub, "test-session-id")
 
@@ -25,11 +22,7 @@ pub fn build_subscription_body_test() {
 }
 
 pub fn build_subscription_body_empty_condition_test() {
-  let sub = Subscription(
-    type_: "channel.follow",
-    version: "1",
-    condition: [],
-  )
+  let sub = Subscription(type_: "channel.follow", version: "1", condition: [])
 
   let body = subscription.build_subscription_body(sub, "test-session-id")
 
@@ -96,13 +89,13 @@ pub fn parse_first_subscription_id_empty_data_test() {
   let body = "{\"data\":[]}"
   case subscription.parse_first_subscription_id(body) {
     Error(InvalidMessage(_)) -> Nil
-    other -> panic as { "Expected InvalidMessage, got: " <> describe_result(other) }
+    other ->
+      panic as { "Expected InvalidMessage, got: " <> describe_result(other) }
   }
 }
 
 pub fn parse_subscription_ids_multiple_test() {
-  let body =
-    "{\"data\":[{\"id\":\"a\"},{\"id\":\"b\"},{\"id\":\"c\"}]}"
+  let body = "{\"data\":[{\"id\":\"a\"},{\"id\":\"b\"},{\"id\":\"c\"}]}"
   subscription.parse_subscription_ids(body)
   |> should.be_ok
   |> should.equal(["a", "b", "c"])
@@ -111,7 +104,8 @@ pub fn parse_subscription_ids_multiple_test() {
 pub fn parse_subscription_ids_invalid_json_test() {
   case subscription.parse_subscription_ids("not json") {
     Error(InvalidMessage(_)) -> Nil
-    other -> panic as { "Expected InvalidMessage, got: " <> describe_result(other) }
+    other ->
+      panic as { "Expected InvalidMessage, got: " <> describe_result(other) }
   }
 }
 
