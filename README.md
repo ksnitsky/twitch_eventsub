@@ -13,6 +13,13 @@ Handles connection management, automatic reconnects with exponential backoff, ke
 - **Type-safe** — Fully typed Gleam with exhaustive error handling
 - **Extensible** — Parse any EventSub event via the `Other` variant
 
+## Requirements
+
+- **Erlang/OTP ≥ 27** — `gleam_json` v3 uses the built-in `json` module
+  introduced in OTP 27. On OTP 26 or older, `gleam_json` must be pinned
+  to v1.x, which this library does not support.
+- **Gleam ≥ 1.16**.
+
 ## Installation
 
 ```sh
