@@ -1,0 +1,110 @@
+import gleam/string
+import gleeunit/should
+import internal/session
+import types.{
+  ChatMessage, InvalidMessage, Message, MessageContent, Other,
+}
+
+// --- Session parsing tests ---
+
+const welcome_json = "{\"metadata\":{\"message_id\":\"test-id\",\"message_type\":\"session_welcome\",\"message_timestamp\":\"2024-01-01T00:00:00.000000000Z\"},\"payload\":{\"session\":{\"id\":\"test-session-id\",\"status\":\"connected\",\"connected_at\":\"2024-01-01T00:00:00.000000000Z\",\"keepalive_timeout_seconds\":10,\"reconnect_url\":null}}}"
+
+pub fn parse_welcome_test() {
+  session.parse_message(welcome_json)
+  |> should.be_ok
+  |> should.equal(session.Welcome("test-session-id", 10))
+}
+
+const keepalive_json = "{\"metadata\":{\"message_id\":\"test-id\",\"message_type\":\"session_keepalive\",\"message_timestamp\":\"2024-01-01T00:00:00.000000000Z\"},\"payload\":{}}"
+
+pub fn parse_keepalive_test() {
+  session.parse_message(keepalive_json)
+  |> should.be_ok
+  |> should.equal(session.Keepalive)
+}
+
+const reconnect_json = "{\"metadata\":{\"message_id\":\"test-id\",\"message_type\":\"session_reconnect\",\"message_timestamp\":\"2024-01-01T00:00:00.000000000Z\"},\"payload\":{\"session\":{\"id\":\"test-session-id\",\"status\":\"reconnecting\",\"connected_at\":\"2024-01-01T00:00:00.000000000Z\",\"keepalive_timeout_seconds\":10,\"reconnect_url\":\"wss://eventsub.wss.twitch.tv/ws?test=1\"}}}"
+
+pub fn parse_reconnect_test() {
+  session.parse_message(reconnect_json)
+  |> should.be_ok
+  |> should.equal(session.Reconnect("wss://eventsub.wss.twitch.tv/ws?test=1"))
+}
+
+const chat_message_json = "{\"metadata\":{\"message_id\":\"msg-id\",\"message_type\":\"notification\",\"message_timestamp\":\"2024-01-01T00:00:00.000000000Z\",\"subscription_type\":\"channel.chat.message\",\"subscription_version\":\"1\"},\"payload\":{\"subscription\":{},\"event\":{\"broadcaster_user_id\":\"123\",\"broadcaster_user_login\":\"testbroadcaster\",\"broadcaster_user_name\":\"TestBroadcaster\",\"chatter_user_id\":\"456\",\"chatter_user_login\":\"testchatter\",\"chatter_user_name\":\"TestChatter\",\"message_id\":\"msg-id\",\"message\":{\"text\":\"Hello world\",\"fragments\":[{\"type\":\"text\",\"text\":\"Hello world\",\"cheermote\":null,\"emote\":null,\"mention\":null}]},\"color\":\"#FF0000\",\"badges\":[],\"message_type\":\"text\",\"cheer\":null,\"reply\":null,\"channel_points_custom_reward_id\":null,\"channel_points_animation_id\":null}}}"
+
+pub fn parse_chat_message_test() {
+  let assert Ok(session.Notification("channel.chat.message", event)) =
+    session.parse_message(chat_message_json)
+
+  case event {
+    Message(ChatMessage(
+      broadcaster_user_id: "123",
+      broadcaster_user_login: "testbroadcaster",
+      chatter_user_id: "456",
+      chatter_user_login: "testchatter",
+      message: MessageContent(text: "Hello world", ..),
+    )) -> Nil
+    other -> panic as { "Unexpected event: " <> string.inspect(other) }
+  }
+}
+
+const unknown_notification_json = "{\"metadata\":{\"message_id\":\"msg-id\",\"message_type\":\"notification\",\"message_timestamp\":\"2024-01-01T00:00:00.000000000Z\",\"subscription_type\":\"channel.follow\",\"subscription_version\":\"1\"},\"payload\":{\"subscription\":{},\"event\":{\"user_id\":\"123\",\"user_login\":\"testuser\",\"user_name\":\"TestUser\",\"broadcaster_user_id\":\"456\",\"broadcaster_user_login\":\"testbroadcaster\",\"broadcaster_user_name\":\"TestBroadcaster\",\"followed_at\":\"2024-01-01T00:00:00.000000000Z\"}}}"
+
+pub fn parse_unknown_event_test() {
+  let assert Ok(session.Notification("channel.follow", event)) =
+    session.parse_message(unknown_notification_json)
+
+  case event {
+    Other("channel.follow", _) -> Nil
+    other -> panic as { "Expected Other, got: " <> string.inspect(other) }
+  }
+}
+
+pub fn parse_invalid_json_test() {
+  session.parse_message("not json")
+  |> should.be_error
+  |> should.equal(InvalidMessage("Failed to parse JSON to dynamic value"))
+}
+
+pub fn parse_unknown_message_type_test() {
+  session.parse_message("{\"metadata\":{\"message_type\":\"session_revocation\"},\"payload\":{}}")
+  |> should.be_ok
+  |> should.equal(session.Unknown("session_revocation"))
+}
+
+pub fn parse_missing_subscription_type_test() {
+  let json = "{\"metadata\":{\"message_id\":\"msg-id\",\"message_type\":\"notification\",\"message_timestamp\":\"2024-01-01T00:00:00.000000000Z\"},\"payload\":{\"event\":{}}}"
+  session.parse_message(json)
+  |> should.be_error
+  |> should.equal(InvalidMessage("Missing subscription_type in notification metadata"))
+}
+
+pub fn parse_welcome_missing_session_test() {
+  let json = "{\"metadata\":{\"message_type\":\"session_welcome\"},\"payload\":{}}"
+  session.parse_message(json)
+  |> should.be_error
+  |> should.equal(InvalidMessage("Missing session id in welcome payload"))
+}
+
+pub fn parse_reconnect_missing_url_test() {
+  let json = "{\"metadata\":{\"message_type\":\"session_reconnect\"},\"payload\":{\"session\":{}}}"
+  session.parse_message(json)
+  |> should.be_error
+  |> should.equal(InvalidMessage("Missing reconnect_url in reconnect payload"))
+}
+
+pub fn parse_chat_message_with_special_chars_test() {
+  let json = "{\"metadata\":{\"message_id\":\"msg-id\",\"message_type\":\"notification\",\"message_timestamp\":\"2024-01-01T00:00:00.000000000Z\",\"subscription_type\":\"channel.chat.message\",\"subscription_version\":\"1\"},\"payload\":{\"subscription\":{},\"event\":{\"broadcaster_user_id\":\"123\",\"broadcaster_user_login\":\"testbroadcaster\",\"chatter_user_id\":\"456\",\"chatter_user_login\":\"testchatter\",\"message\":{\"text\":\"Hello :) \\u2764\\u2764\\u2764\",\"fragments\":[]}}}}"
+
+  let assert Ok(session.Notification("channel.chat.message", event)) =
+    session.parse_message(json)
+
+  case event {
+    Message(ChatMessage(
+      message: MessageContent(text: "Hello :) ❤❤❤", ..),
+      ..
+    )) -> Nil
+    other -> panic as { "Unexpected event: " <> string.inspect(other) }
+  }
+}

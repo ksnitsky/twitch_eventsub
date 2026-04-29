@@ -2,9 +2,8 @@ import gleam/dynamic
 import gleam/dynamic/decode
 import gleam/json
 import gleam/result
-import types.{
-  type Error, type Event, ChatMessage, InvalidMessage, Message, Other,
-}
+import internal/decoders
+import types.{type Error, type Event, InvalidMessage, Message, Other}
 
 /// Internal representation of raw EventSub WebSocket messages.
 pub type EventSubMessage {
@@ -40,53 +39,44 @@ pub fn parse_message(json_string: String) -> Result(EventSubMessage, Error) {
   }
 }
 
-// --- Parsers for each message type ---
+/// Run a decoder at a path and tag any failure as `InvalidMessage(context)`.
+fn decode_at(
+  raw: dynamic.Dynamic,
+  path: List(String),
+  decoder: decode.Decoder(a),
+  context: String,
+) -> Result(a, Error) {
+  decode.run(raw, decode.at(path, decoder))
+  |> result.map_error(fn(_) { InvalidMessage(context) })
+}
 
 fn parse_welcome(raw: dynamic.Dynamic) -> Result(EventSubMessage, Error) {
-  use session_id <- result.try(
-    decode.run(raw, decode.at(["payload", "session", "id"], decode.string))
-    |> result.map_error(fn(_err) {
-      InvalidMessage("Missing session id in welcome payload")
-    }),
-  )
-
-  let keepalive_seconds =
-    decode.run(
-      raw,
-      decode.at(
-        ["payload", "session", "keepalive_timeout_seconds"],
-        decode.int,
-      ),
-    )
-    |> result.unwrap(10)
-
-  Ok(Welcome(session_id, keepalive_seconds))
+  use #(session_id, keepalive_seconds) <- result.map(decode_at(
+    raw,
+    ["payload", "session"],
+    decoders.welcome_session(),
+    "Missing session id in welcome payload",
+  ))
+  Welcome(session_id, keepalive_seconds)
 }
 
 fn parse_reconnect(raw: dynamic.Dynamic) -> Result(EventSubMessage, Error) {
-  use reconnect_url <- result.try(
-    decode.run(
-      raw,
-      decode.at(["payload", "session", "reconnect_url"], decode.string),
-    )
-    |> result.map_error(fn(_err) {
-      InvalidMessage("Missing reconnect_url in reconnect payload")
-    }),
-  )
-
-  Ok(Reconnect(reconnect_url))
+  use url <- result.map(decode_at(
+    raw,
+    ["payload", "session"],
+    decoders.reconnect_url(),
+    "Missing reconnect_url in reconnect payload",
+  ))
+  Reconnect(url)
 }
 
 fn parse_notification(raw: dynamic.Dynamic) -> Result(EventSubMessage, Error) {
-  use subscription_type <- result.try(
-    decode.run(
-      raw,
-      decode.at(["metadata", "subscription_type"], decode.string),
-    )
-    |> result.map_error(fn(_err) {
-      InvalidMessage("Missing subscription_type in notification metadata")
-    }),
-  )
+  use subscription_type <- result.try(decode_at(
+    raw,
+    ["metadata", "subscription_type"],
+    decode.string,
+    "Missing subscription_type in notification metadata",
+  ))
 
   case subscription_type {
     "channel.chat.message" -> parse_chat_message(raw, subscription_type)
@@ -98,54 +88,24 @@ fn parse_chat_message(
   raw: dynamic.Dynamic,
   subscription_type: String,
 ) -> Result(EventSubMessage, Error) {
-  let decoder = {
-    use broadcaster_user_id <- decode.field("broadcaster_user_id", decode.string)
-    use broadcaster_user_login <- decode.field(
-      "broadcaster_user_login",
-      decode.string,
-    )
-    use chatter_user_id <- decode.field("chatter_user_id", decode.string)
-    use chatter_user_login <- decode.field("chatter_user_login", decode.string)
-    use message <- decode.field("message", message_decoder())
-
-    decode.success(
-      Message(
-        ChatMessage(
-          broadcaster_user_id:,
-          broadcaster_user_login:,
-          chatter_user_id:,
-          chatter_user_login:,
-          message:,
-        ),
-      ),
-    )
-  }
-
-  use event <- result.try(
-    decode.run(raw, decode.at(["payload", "event"], decoder))
-    |> result.map_error(fn(_err) {
-      InvalidMessage("Invalid chat message event payload")
-    }),
-  )
-
-  Ok(Notification(subscription_type, event))
-}
-
-fn message_decoder() -> decode.Decoder(types.MessageContent) {
-  use text <- decode.field("text", decode.string)
-  decode.success(types.MessageContent(text:, fragments: [types.Text(text)]))
+  use chat <- result.map(decode_at(
+    raw,
+    ["payload", "event"],
+    decoders.chat_message(),
+    "Invalid chat message event payload",
+  ))
+  Notification(subscription_type, Message(chat))
 }
 
 fn parse_unknown_event(
   raw: dynamic.Dynamic,
   subscription_type: String,
 ) -> Result(EventSubMessage, Error) {
-  use event_dynamic <- result.try(
-    decode.run(raw, decode.at(["payload", "event"], decode.dynamic))
-    |> result.map_error(fn(_err) {
-      InvalidMessage("Missing event in notification payload")
-    }),
-  )
-
-  Ok(Notification(subscription_type, Other(subscription_type, event_dynamic)))
+  use event_dynamic <- result.map(decode_at(
+    raw,
+    ["payload", "event"],
+    decode.dynamic,
+    "Missing event in notification payload",
+  ))
+  Notification(subscription_type, Other(subscription_type, event_dynamic))
 }
