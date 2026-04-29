@@ -9,7 +9,7 @@ import logging
 import stratus
 import types.{
   type Config, type Error, type Event, type Subscription, SessionClosed,
-  WebSocketError,
+  SubscriptionNotFound, WebSocketError,
 }
 import internal/messages.{
   type WsToManagerMsg, WsClosed, WsConnected, WsEvent, WsKeepalive, WsReconnect,
@@ -28,6 +28,8 @@ pub opaque type Connection {
 
 pub type UserMsg {
   Subscribe(Subscription, Subject(Result(Nil, Error)))
+  Unsubscribe(type_: String, reply_to: Subject(Result(Nil, Error)))
+  ListSubscriptions(Subject(List(Subscription)))
   Stop
 }
 
@@ -46,7 +48,11 @@ pub type State {
     self: Subject(Msg),
     ws_subject: Option(Subject(stratus.InternalMessage(websocket.UserMsg))),
     session_id: Option(String),
-    subscriptions: List(Subscription),
+    /// Active subscriptions paired with the ID Twitch assigned at create
+    /// time. ID is required for unsubscribe; the `Subscription` value is
+    /// kept so we can re-create them after a reconnect (when the old IDs
+    /// become invalid because the session changes).
+    subscriptions: List(#(String, Subscription)),
     reconnect_url: Option(String),
     keepalive_timer: Option(Timer),
     reconnect_timer: Option(Timer),
@@ -147,18 +153,44 @@ pub fn subscribe(
   subscription: Subscription,
 ) -> Result(Nil, Error) {
   let Connection(subject) = connection
-  let reply_to = process.new_subject()
-  process.send(subject, User(Subscribe(subscription, reply_to)))
+  call(subject, fn(reply_to) { Subscribe(subscription, reply_to) })
+}
 
-  process.receive(reply_to, 10_000)
-  |> result.map_error(fn(_) { WebSocketError("Subscription request timed out") })
-  |> result.flatten
+/// Remove all active subscriptions of the given type. Returns
+/// `SubscriptionNotFound` if there is no matching subscription.
+pub fn unsubscribe(
+  connection: Connection,
+  subscription_type: String,
+) -> Result(Nil, Error) {
+  let Connection(subject) = connection
+  call(subject, fn(reply_to) { Unsubscribe(subscription_type, reply_to) })
+}
+
+/// List all subscriptions currently tracked by the manager.
+pub fn list_subscriptions(connection: Connection) -> List(Subscription) {
+  let Connection(subject) = connection
+  let reply_to = process.new_subject()
+  process.send(subject, User(ListSubscriptions(reply_to)))
+  process.receive(reply_to, 5000)
+  |> result.unwrap([])
 }
 
 /// Disconnect from Twitch EventSub and clean up resources.
 pub fn stop(connection: Connection) -> Nil {
   let Connection(subject) = connection
   process.send(subject, User(Stop))
+}
+
+/// Round-trip a UserMsg that carries a `Subject(Result(Nil, Error))` reply.
+fn call(
+  subject: Subject(Msg),
+  build: fn(Subject(Result(Nil, Error))) -> UserMsg,
+) -> Result(Nil, Error) {
+  let reply_to = process.new_subject()
+  process.send(subject, User(build(reply_to)))
+  process.receive(reply_to, 10_000)
+  |> result.map_error(fn(_) { WebSocketError("Manager request timed out") })
+  |> result.flatten
 }
 
 // --- Internal message handlers ---
@@ -176,6 +208,8 @@ fn handle_message(state: State, msg: Msg) -> actor.Next(State, Msg) {
 fn handle_user_msg(state: State, msg: UserMsg) -> actor.Next(State, Msg) {
   case msg {
     Subscribe(sub, reply_to) -> handle_subscribe(state, sub, reply_to)
+    Unsubscribe(type_, reply_to) -> handle_unsubscribe(state, type_, reply_to)
+    ListSubscriptions(reply_to) -> handle_list(state, reply_to)
     Stop -> handle_stop(state)
   }
 }
@@ -185,19 +219,67 @@ fn handle_subscribe(
   sub: Subscription,
   reply_to: Subject(Result(Nil, Error)),
 ) -> actor.Next(State, Msg) {
-  let new_state = State(..state, subscriptions: [sub, ..state.subscriptions])
-
   case state.session_id {
-    Some(session_id) -> {
-      let result = subscription.create(state.config, session_id, sub)
-      process.send(reply_to, result)
-    }
     None -> {
       process.send(reply_to, Error(SessionClosed))
+      actor.continue(state)
+    }
+    Some(session_id) ->
+      case subscription.create(state.config, session_id, sub) {
+        Ok(id) -> {
+          process.send(reply_to, Ok(Nil))
+          actor.continue(
+            State(..state, subscriptions: [#(id, sub), ..state.subscriptions]),
+          )
+        }
+        Error(err) -> {
+          process.send(reply_to, Error(err))
+          actor.continue(state)
+        }
+      }
+  }
+}
+
+fn handle_unsubscribe(
+  state: State,
+  subscription_type: String,
+  reply_to: Subject(Result(Nil, Error)),
+) -> actor.Next(State, Msg) {
+  let #(matching, remaining) =
+    list.partition(state.subscriptions, fn(entry) {
+      let #(_, sub) = entry
+      sub.type_ == subscription_type
+    })
+
+  case matching {
+    [] -> {
+      process.send(reply_to, Error(SubscriptionNotFound))
+      actor.continue(state)
+    }
+    _ -> {
+      let delete_result =
+        list.try_each(matching, fn(entry) {
+          let #(id, _) = entry
+          subscription.delete(state.config, id)
+        })
+      process.send(reply_to, delete_result)
+      // Remove from local state regardless — a failed delete usually means
+      // the remote side already lost the subscription, and we don't want to
+      // leak stale entries that would be re-created on the next reconnect.
+      actor.continue(State(..state, subscriptions: remaining))
     }
   }
+}
 
-  actor.continue(new_state)
+fn handle_list(
+  state: State,
+  reply_to: Subject(List(Subscription)),
+) -> actor.Next(State, Msg) {
+  let subs =
+    state.subscriptions
+    |> list.map(fn(entry) { entry.1 })
+  process.send(reply_to, subs)
+  actor.continue(state)
 }
 
 fn handle_stop(state: State) -> actor.Next(State, Msg) {
@@ -363,18 +445,29 @@ pub fn calculate_backoff(attempt: Int) -> Int {
 
 fn resubscribe_all(state: State) -> State {
   case state.session_id {
-    Some(session_id) -> {
-      list.each(state.subscriptions, fn(sub) {
-        case subscription.create(state.config, session_id, sub) {
-          Ok(_) -> Nil
-          Error(err) -> {
-            logging.log(logging.Warning, "gwitchel: Resubscription failed: " <> string.inspect(err))
-            Nil
-          }
-        }
-      })
-      state
-    }
     None -> state
+    Some(session_id) -> {
+      // Old IDs are tied to the previous session and are no longer valid.
+      // Re-create each subscription, drop any that fail (and log them) so
+      // the rest of the connection keeps working.
+      let refreshed =
+        list.filter_map(state.subscriptions, fn(entry) {
+          let #(_old_id, sub) = entry
+          case subscription.create(state.config, session_id, sub) {
+            Ok(new_id) -> Ok(#(new_id, sub))
+            Error(err) -> {
+              logging.log(
+                logging.Warning,
+                "gwitchel: Resubscription failed for "
+                  <> sub.type_
+                  <> ": "
+                  <> string.inspect(err),
+              )
+              Error(Nil)
+            }
+          }
+        })
+      State(..state, subscriptions: refreshed)
+    }
   }
 }
