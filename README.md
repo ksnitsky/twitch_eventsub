@@ -36,6 +36,9 @@ pub fn main() {
   let config = types.Config(
     client_id: "your-client-id",
     access_token: "your-access-token",
+    eventsub_ws_url: option.None,
+    helix_base_url: option.None,
+    on_status: option.None,
   )
 
   let handler = fn(event) {
@@ -110,6 +113,17 @@ pub type Config {
   Config(
     client_id: String,
     access_token: String,
+    /// Optional override for the EventSub WebSocket URL.
+    /// Defaults to "wss://eventsub.wss.twitch.tv/ws" when None.
+    eventsub_ws_url: Option(String),
+    /// Optional override for the Helix base URL.
+    /// Defaults to "https://api.twitch.tv" when None.
+    helix_base_url: Option(String),
+    /// Optional callback for connection-lifecycle and recovery events
+    /// (reconnects, keepalive timeouts, resubscribe failures). The library
+    /// does no logging of its own — wire this to your logging stack if
+    /// you want visibility.
+    on_status: Option(fn(StatusEvent) -> Nil),
   )
 }
 
@@ -186,6 +200,52 @@ case twitch_eventsub.connect(config, handler) {
   }
 }
 ```
+
+### Custom Endpoints (twitch-cli, tests)
+
+Both `eventsub_ws_url` and `helix_base_url` are optional and default to
+Twitch's public endpoints. Override them to point at a local
+[twitch-cli](https://github.com/twitchdev/twitch-cli) mock server (for
+example, `twitch event websocket start-server` plus `twitch mock-api start`),
+or at any HTTP/WS server in tests:
+
+```gleam
+types.Config(
+  client_id: "stub",
+  access_token: "stub",
+  eventsub_ws_url: option.Some("ws://localhost:8080/ws"),
+  helix_base_url: option.Some("http://localhost:8080"),
+  on_status: option.None,
+)
+```
+
+### Observability
+
+The library does no logging of its own. Set `on_status` to receive
+connection-lifecycle and recovery events (reconnects, keepalive timeouts,
+resubscribe failures) and route them to your logging stack:
+
+```gleam
+let on_status = fn(event) {
+  case event {
+    types.KeepaliveTimedOut -> io.println("ws stalled, reconnecting")
+    types.ReconnectsExhausted -> io.println("giving up")
+    types.ResubscribeFailed(type_, _) ->
+      io.println("could not resubscribe " <> type_)
+    _ -> Nil
+  }
+}
+
+let config = types.Config(
+  client_id: "...",
+  access_token: "...",
+  eventsub_ws_url: option.None,
+  helix_base_url: option.None,
+  on_status: option.Some(on_status),
+)
+```
+
+See `StatusEvent` in `types.gleam` for the full list of variants.
 
 ## Required OAuth Scopes
 

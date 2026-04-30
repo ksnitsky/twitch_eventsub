@@ -1,4 +1,5 @@
 import gleam/dynamic.{type Dynamic}
+import gleam/option.{type Option, None, Some}
 
 /// Configuration for connecting to Twitch EventSub.
 pub type Config {
@@ -7,7 +8,61 @@ pub type Config {
     client_id: String,
     /// Twitch app access token (or user access token for the bot).
     access_token: String,
+    /// Override for the EventSub WebSocket URL. Defaults to
+    /// "wss://eventsub.wss.twitch.tv/ws". Useful for tests and for
+    /// pointing at twitch-cli (`twitch event websocket start-server`).
+    eventsub_ws_url: Option(String),
+    /// Override for the Helix base URL. Defaults to
+    /// "https://api.twitch.tv".
+    helix_base_url: Option(String),
+    /// Optional callback invoked for connection lifecycle and recovery
+    /// events that the library has no other channel to surface (reconnects,
+    /// keepalive timeouts, resubscribe failures). Callers can wire this to
+    /// their own logging stack — the library does not log internally.
+    on_status: Option(fn(StatusEvent) -> Nil),
   )
+}
+
+/// Lifecycle and recovery events the manager emits for an installed
+/// `on_status` callback. None of these are user-actionable on their own;
+/// they exist for observability.
+pub type StatusEvent {
+  /// WebSocket established and Twitch sent `session_welcome`.
+  Connected(session_id: String)
+  /// WebSocket closed. Reconnect handling may follow depending on the
+  /// reason (server-initiated `session_reconnect`, keepalive timeout,
+  /// network drop).
+  Disconnected(reason: String)
+  /// Manager is attempting to (re)connect. `attempt` is 0 for a clean
+  /// `session_reconnect`, and 1+ for backoff retries after a failure.
+  Reconnecting(url: String, attempt: Int)
+  /// No keepalive received within the timeout window. The manager will
+  /// close the WS and reconnect.
+  KeepaliveTimedOut
+  /// Maximum reconnect attempts reached; the manager is stopping.
+  ReconnectsExhausted
+  /// `disconnect()` was called and the manager is shutting down.
+  Stopping
+  /// A connection or actor-start attempt failed; the manager will
+  /// schedule a reconnect with backoff.
+  ConnectionAttemptFailed(error: Error)
+  /// Re-creating a subscription after a reconnect failed. The subscription
+  /// has been dropped from the manager's tracked list.
+  ResubscribeFailed(type_: String, error: Error)
+  /// Failed to parse an incoming EventSub frame.
+  MessageParseFailed(detail: String)
+  /// Received a Twitch message whose type is not handled by the library.
+  UnknownMessageType(msg_type: String)
+}
+
+/// Helper for internal modules: invoke the configured status callback if
+/// present. Defined here so every module that has a `Config` can emit
+/// without an extra dependency.
+pub fn emit_status(config: Config, event: StatusEvent) -> Nil {
+  case config.on_status {
+    Some(cb) -> cb(event)
+    None -> Nil
+  }
 }
 
 /// Represents a parsed EventSub notification event.

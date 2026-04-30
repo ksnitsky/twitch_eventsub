@@ -9,10 +9,10 @@ import internal/messages.{
   type WsToManagerMsg, WsClosed, WsConnected, WsEvent, WsKeepalive, WsReconnect,
 }
 import internal/session
-import logging
 import stratus
 import types.{
-  type Config, type Error, type Event, type Subscription, WebSocketError,
+  type Config, type Error, type Event, type Subscription, MessageParseFailed,
+  UnknownMessageType, WebSocketError, emit_status,
 }
 
 // --- Public types ---
@@ -118,17 +118,11 @@ fn handle_twitch_text(
       stratus.continue(state)
     }
     Ok(session.Unknown(msg_type)) -> {
-      logging.log(
-        logging.Debug,
-        "twitch_eventsub: Unknown message type: " <> msg_type,
-      )
+      emit_status(state.config, UnknownMessageType(msg_type))
       stratus.continue(state)
     }
     Error(err) -> {
-      logging.log(
-        logging.Warning,
-        "twitch_eventsub: Failed to parse message: " <> string.inspect(err),
-      )
+      emit_status(state.config, MessageParseFailed(string.inspect(err)))
       stratus.continue(state)
     }
   }
@@ -163,10 +157,15 @@ fn build_request(url: String) -> request.Request(String) {
       let host = option.unwrap(parsed.host, "eventsub.wss.twitch.tv")
       let path = build_path(parsed.path, parsed.query)
 
-      request.new()
-      |> request.set_host(host)
-      |> request.set_path(path)
-      |> request.set_scheme(scheme)
+      let req =
+        request.new()
+        |> request.set_host(host)
+        |> request.set_path(path)
+        |> request.set_scheme(scheme)
+      case parsed.port {
+        Some(port) -> request.set_port(req, port)
+        None -> req
+      }
     }
     Error(_) -> {
       request.new()

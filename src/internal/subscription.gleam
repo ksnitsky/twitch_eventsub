@@ -5,15 +5,17 @@ import gleam/http/response.{type Response}
 import gleam/httpc
 import gleam/json
 import gleam/list
+import gleam/option.{None, Some}
 import gleam/result
 import gleam/string
+import gleam/uri
 import internal/decoders
 import types.{
   type Config, type Error, type Subscription, AuthError, HttpError,
   InvalidMessage, SubscriptionError,
 }
 
-const helix_host = "api.twitch.tv"
+const default_helix_base_url = "https://api.twitch.tv"
 
 const helix_subscriptions_path = "/helix/eventsub/subscriptions"
 
@@ -105,13 +107,37 @@ pub fn build_subscription_body(
 // --- Internal helpers ---
 
 fn helix_request(config: Config) -> Request(String) {
-  request.new()
-  |> request.set_host(helix_host)
-  |> request.set_path(helix_subscriptions_path)
-  |> request.set_scheme(http.Https)
-  |> request.set_header("Client-Id", config.client_id)
-  |> request.set_header("Authorization", "Bearer " <> config.access_token)
-  |> request.set_body("")
+  let base = option.unwrap(config.helix_base_url, default_helix_base_url)
+  let #(scheme, host, port) = parse_base_url(base)
+
+  let req =
+    request.new()
+    |> request.set_scheme(scheme)
+    |> request.set_host(host)
+    |> request.set_path(helix_subscriptions_path)
+    |> request.set_header("Client-Id", config.client_id)
+    |> request.set_header("Authorization", "Bearer " <> config.access_token)
+    |> request.set_body("")
+
+  case port {
+    Some(p) -> request.set_port(req, p)
+    None -> req
+  }
+}
+
+fn parse_base_url(base: String) -> #(http.Scheme, String, option.Option(Int)) {
+  case uri.parse(base) {
+    Ok(parsed) -> {
+      let scheme = case parsed.scheme {
+        Some("https") -> http.Https
+        Some("http") -> http.Http
+        _ -> http.Https
+      }
+      let host = option.unwrap(parsed.host, "api.twitch.tv")
+      #(scheme, host, parsed.port)
+    }
+    Error(_) -> #(http.Https, "api.twitch.tv", None)
+  }
 }
 
 fn send(req: Request(String)) -> Result(Response(String), Error) {
