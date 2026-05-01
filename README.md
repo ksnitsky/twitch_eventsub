@@ -15,6 +15,10 @@ Handles connection management, automatic reconnects with exponential backoff, ke
 
 ## Requirements
 
+- **Erlang target only.** This library targets Erlang/BEAM and does not
+  compile to JavaScript — it depends on `gleam_otp` (actors), `gleam_erlang`
+  (processes/timers), `stratus` (Erlang WebSocket client), and `gleam_httpc`,
+  none of which support the JS target.
 - **Erlang/OTP ≥ 27** — `gleam_json` v3 uses the built-in `json` module
   introduced in OTP 27. On OTP 26 or older, `gleam_json` must be pinned
   to v1.x, which this library does not support.
@@ -95,14 +99,48 @@ pub fn connect(
   handler: fn(Event) -> Nil,
 ) -> Result(Connection, Error)
 
-/// Subscribe to an EventSub event type.
+/// Subscribe to an EventSub event type. Subscriptions are tracked by the
+/// manager and re-created automatically after a reconnect.
 pub fn subscribe(
   connection: Connection,
   subscription: Subscription,
 ) -> Result(Nil, Error)
 
+/// Remove all subscriptions of the given EventSub type. Returns
+/// `Error(SubscriptionNotFound)` if there is no matching subscription.
+pub fn unsubscribe(
+  connection: Connection,
+  subscription_type: String,
+) -> Result(Nil, Error)
+
+/// Subscriptions currently tracked by the manager (its local view, not a
+/// round-trip to Twitch).
+pub fn list_subscriptions(connection: Connection) -> List(Subscription)
+
 /// Disconnect from Twitch EventSub and clean up resources.
 pub fn disconnect(connection: Connection) -> Nil
+```
+
+#### Convenience helpers
+
+Pre-built builders for the two most common subscriptions:
+
+```gleam
+/// Equivalent to subscribing to "channel.chat.message" v1 with
+/// {broadcaster_user_id, user_id} as the condition.
+pub fn subscribe_chat(
+  connection: Connection,
+  broadcaster_user_id: String,
+  user_id: String,
+) -> Result(Nil, Error)
+
+/// Equivalent to subscribing to "channel.follow" v2. `moderator_user_id`
+/// must be a moderator-or-broadcaster on the target channel.
+pub fn subscribe_follows(
+  connection: Connection,
+  broadcaster_user_id: String,
+  moderator_user_id: String,
+) -> Result(Nil, Error)
 ```
 
 ### Types
@@ -311,13 +349,22 @@ See `StatusEvent` in `types.gleam` for the full list of variants.
 
 ## Required OAuth Scopes
 
-| Event Type | Required Scope |
-|---|---|
-| `channel.chat.message` | `user:read:chat` + `channel:bot` (broadcaster must authorize) |
-| `channel.follow` | `moderator:read:followers` |
-| `channel.subscribe` | `channel:read:subscriptions` |
+The token used in `Config.access_token` must be a **user access token** for
+the user named in the subscription `condition` (`user_id` for chat,
+`moderator_user_id` for follows, etc.) and must carry the matching scope:
 
-See [Twitch EventSub Reference](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types/) for full details.
+| Event Type | Token owner | Required Scope |
+|---|---|---|
+| `channel.chat.message` | the user reading chat | `user:read:chat` |
+| `channel.follow` (v2) | a moderator-or-broadcaster on the channel | `moderator:read:followers` |
+| `channel.subscribe` | the broadcaster | `channel:read:subscriptions` |
+
+For `channel.chat.message` the broadcaster does **not** need to authorize
+your app — chat is public, anyone with a `user:read:chat` token can listen
+to any channel (a streamer can still ban your bot account from their chat
+afterwards).
+
+See [Twitch EventSub Reference](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types/) for the full per-event scope list.
 
 ## Supported Event Types
 
