@@ -59,6 +59,11 @@ pub type State {
     /// become invalid because the session changes).
     subscriptions: List(#(String, Subscription)),
     reconnect_url: Option(String),
+    /// Keepalive window negotiated with Twitch in `session_welcome`. Used to
+    /// (re)arm the watchdog timer after every incoming message — Twitch only
+    /// emits `session_keepalive` when no other traffic occurred in the
+    /// window, so notifications must reset the timer too.
+    keepalive_seconds: Int,
     keepalive_timer: Option(Timer),
     reconnect_timer: Option(Timer),
     reconnect_attempts: Int,
@@ -111,6 +116,7 @@ pub fn start(
           session_id: None,
           subscriptions: [],
           reconnect_url: None,
+          keepalive_seconds: default_keepalive_seconds,
           keepalive_timer: None,
           reconnect_timer: None,
           reconnect_attempts: 0,
@@ -326,19 +332,17 @@ fn handle_ws_msg(state: State, msg: WsToManagerMsg) -> actor.Next(State, Msg) {
       // Cancel any pending reconnect timer
       let _ = option.map(state.reconnect_timer, process.cancel_timer)
 
-      // Start keepalive timer
-      let timeout_ms = keepalive_seconds * 1000 + keepalive_grace_ms
-      let timer = process.send_after(state.self, timeout_ms, KeepaliveExpired)
-
       let new_state =
-        State(
-          ..state,
-          session_id: Some(session_id),
-          keepalive_timer: Some(timer),
-          reconnect_timer: None,
-          reconnect_attempts: 0,
-          is_connected: True,
-          ready_subject: None,
+        reset_keepalive_timer(
+          State(
+            ..state,
+            session_id: Some(session_id),
+            keepalive_seconds: keepalive_seconds,
+            reconnect_timer: None,
+            reconnect_attempts: 0,
+            is_connected: True,
+            ready_subject: None,
+          ),
         )
 
       // Re-subscribe to all previously registered subscriptions
@@ -347,14 +351,7 @@ fn handle_ws_msg(state: State, msg: WsToManagerMsg) -> actor.Next(State, Msg) {
       actor.continue(new_state)
     }
 
-    WsKeepalive -> {
-      // Reset keepalive timer
-      let _ = option.map(state.keepalive_timer, process.cancel_timer)
-
-      let timeout_ms = default_keepalive_seconds * 1000 + keepalive_grace_ms
-      let timer = process.send_after(state.self, timeout_ms, KeepaliveExpired)
-      actor.continue(State(..state, keepalive_timer: Some(timer)))
-    }
+    WsKeepalive -> actor.continue(reset_keepalive_timer(state))
 
     WsReconnect(url) -> {
       emit_status(state.config, Reconnecting(url, 0))
@@ -377,7 +374,9 @@ fn handle_ws_msg(state: State, msg: WsToManagerMsg) -> actor.Next(State, Msg) {
 
     WsEvent(event) -> {
       state.handler(event)
-      actor.continue(state)
+      // Notifications also count as activity — Twitch only emits
+      // `session_keepalive` when no other traffic occurred in the window.
+      actor.continue(reset_keepalive_timer(state))
     }
 
     WsClosed(reason) -> {
@@ -442,6 +441,13 @@ fn handle_keepalive_expired(state: State) -> actor.Next(State, Msg) {
 }
 
 // --- Helper functions ---
+
+fn reset_keepalive_timer(state: State) -> State {
+  let _ = option.map(state.keepalive_timer, process.cancel_timer)
+  let timeout_ms = state.keepalive_seconds * 1000 + keepalive_grace_ms
+  let timer = process.send_after(state.self, timeout_ms, KeepaliveExpired)
+  State(..state, keepalive_timer: Some(timer))
+}
 
 fn do_connect_async(state: State, url: String) -> Nil {
   // Start WebSocket in a separate process to avoid blocking the manager.
