@@ -42,6 +42,7 @@ pub fn parse_chat_message_test() {
       chatter_user_id: "456",
       chatter_user_login: "testchatter",
       message: MessageContent(text: "Hello world", ..),
+      ..,
     )) -> Nil
     other -> panic as { "Unexpected event: " <> string.inspect(other) }
   }

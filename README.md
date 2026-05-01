@@ -145,14 +145,53 @@ pub type Event {
 
 ### Chat Message Structure
 
+`ChatMessage` mirrors the full Twitch `channel.chat.message` event. Nullable
+fields come through as `Option`; non-nullable but possibly empty fields
+(`color`, `badges`) come through as plain values.
+
 ```gleam
 pub type ChatMessage {
   ChatMessage(
     broadcaster_user_id: String,
     broadcaster_user_login: String,
+    broadcaster_user_name: String,
     chatter_user_id: String,
     chatter_user_login: String,
+    chatter_user_name: String,
+    message_id: String,
+    message_type: String,   // "text", "channel_points_highlighted", ...
     message: MessageContent,
+    color: String,          // hex like "#FF0000", may be empty
+    badges: List(Badge),
+    cheer: Option(Cheer),
+    reply: Option(Reply),
+    channel_points_custom_reward_id: Option(String),
+    // Shared chat: set when the message was re-broadcast from another channel
+    source_broadcaster_user_id: Option(String),
+    source_broadcaster_user_login: Option(String),
+    source_broadcaster_user_name: Option(String),
+    source_message_id: Option(String),
+    source_badges: Option(List(Badge)),
+  )
+}
+
+pub type Badge {
+  Badge(set_id: String, id: String, info: String)
+}
+
+pub type Cheer { Cheer(bits: Int) }
+
+pub type Reply {
+  Reply(
+    parent_message_id: String,
+    parent_message_body: String,
+    parent_user_id: String,
+    parent_user_login: String,
+    parent_user_name: String,
+    thread_message_id: String,
+    thread_user_id: String,
+    thread_user_login: String,
+    thread_user_name: String,
   )
 }
 
@@ -162,7 +201,30 @@ pub type MessageContent {
     fragments: List(MessageFragment),
   )
 }
+
+pub type MessageFragment {
+  Text(text: String)
+  Emote(text: String, id: String, set_id: String, owner_id: String, format: List(String))
+  Mention(text: String, user_id: String, user_login: String, user_name: String)
+  Cheermote(text: String, prefix: String, bits: Int, tier: Int)
+}
 ```
+
+#### Filtering by badge
+
+Common badge `set_id` values: `broadcaster`, `moderator`, `vip`, `subscriber`
+(tier in `info`), `premium`, `turbo`, `staff`, `admin`, `partner`, `bits`.
+Channels can register a chat bot via the Helix `Add Channel Chat Bot`
+endpoint, and that bot's messages then come through with a dedicated badge —
+filter by the corresponding `set_id` if you want to ignore bot traffic:
+
+```gleam
+import gleam/list
+let is_bot = list.any(msg.badges, fn(b) { b.set_id == "bot-badge" })
+```
+
+(The exact `set_id` for the chat-bot indicator isn't documented by Twitch;
+print `msg.badges` from a real bot message in your channel to confirm.)
 
 ## Advanced Usage
 
