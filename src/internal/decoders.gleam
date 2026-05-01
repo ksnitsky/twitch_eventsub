@@ -239,11 +239,7 @@ fn emote_payload() -> decode.Decoder(#(String, String, String, List(String))) {
   use id <- decode.optional_field("id", "", decode.string)
   use set_id <- decode.optional_field("emote_set_id", "", decode.string)
   use owner_id <- decode.optional_field("owner_id", "", decode.string)
-  use format <- decode.optional_field(
-    "format",
-    [],
-    decode.list(decode.string),
-  )
+  use format <- decode.optional_field("format", [], decode.list(decode.string))
   decode.success(#(id, set_id, owner_id, format))
 }
 

@@ -2,7 +2,9 @@ import gleam/json
 import gleam/option.{None, Some}
 import gleeunit/should
 import internal/decoders
-import types.{Badge, Cheer, Cheermote, Emote, Mention, MessageContent, Reply, Text}
+import types.{
+  Badge, Cheer, Cheermote, Emote, Mention, MessageContent, Reply, Text,
+}
 
 // --- message_content ---
 
@@ -35,13 +37,15 @@ pub fn fragment_emote_test() {
     "{\"type\":\"emote\",\"text\":\"PogChamp\",\"emote\":{\"id\":\"305954156\",\"emote_set_id\":\"0\",\"owner_id\":\"12345\",\"format\":[\"static\"]},\"cheermote\":null,\"mention\":null}"
   json.parse(json, decoders.message_fragment())
   |> should.be_ok
-  |> should.equal(Emote(
-    text: "PogChamp",
-    id: "305954156",
-    set_id: "0",
-    owner_id: "12345",
-    format: ["static"],
-  ))
+  |> should.equal(
+    Emote(
+      text: "PogChamp",
+      id: "305954156",
+      set_id: "0",
+      owner_id: "12345",
+      format: ["static"],
+    ),
+  )
 }
 
 pub fn fragment_emote_missing_payload_test() {
@@ -51,13 +55,9 @@ pub fn fragment_emote_missing_payload_test() {
     "{\"type\":\"emote\",\"text\":\"PogChamp\",\"emote\":null,\"cheermote\":null,\"mention\":null}"
   json.parse(json, decoders.message_fragment())
   |> should.be_ok
-  |> should.equal(Emote(
-    text: "PogChamp",
-    id: "",
-    set_id: "",
-    owner_id: "",
-    format: [],
-  ))
+  |> should.equal(
+    Emote(text: "PogChamp", id: "", set_id: "", owner_id: "", format: []),
+  )
 }
 
 pub fn fragment_mention_test() {
@@ -117,13 +117,7 @@ pub fn chat_message_with_mixed_fragments_test() {
         user_name: "Alice",
       ),
       Text(text: " "),
-      Emote(
-        text: "PogChamp",
-        id: "e1",
-        set_id: "s1",
-        owner_id: "",
-        format: [],
-      ),
+      Emote(text: "PogChamp", id: "e1", set_id: "s1", owner_id: "", format: []),
     ]),
   )
 }
