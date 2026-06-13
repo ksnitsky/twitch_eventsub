@@ -1,10 +1,50 @@
+import gleam/option.{type Option, None, Some}
 import internal/manager
 import types.{
-  type Config, type Error, type Event, type Subscription, Subscription,
+  type ChatMessage, type Config as TypesConfig, type Error as TypesError,
+  type Event as TypesEvent, type Subscription as TypesSubscription,
+  Config, Message, Subscription,
 }
 
 pub type Connection =
   manager.Connection
+
+pub type Config =
+  TypesConfig
+
+pub type Error =
+  TypesError
+
+pub type Event =
+  TypesEvent
+
+pub type Subscription =
+  TypesSubscription
+
+/// Create a new Config for connecting to Twitch EventSub.
+pub fn new_config(
+  client_id client_id: String,
+  access_token access_token: String,
+  eventsub_ws_url eventsub_ws_url: Option(String),
+  helix_base_url helix_base_url: Option(String),
+  on_status on_status: Option(fn(types.StatusEvent) -> Nil),
+) -> Config {
+  Config(
+    client_id: client_id,
+    access_token: access_token,
+    eventsub_ws_url: eventsub_ws_url,
+    helix_base_url: helix_base_url,
+    on_status: on_status,
+  )
+}
+
+/// Extract ChatMessage from an Event if it's a Message event.
+pub fn event_chat_message(event: Event) -> Option(ChatMessage) {
+  case event {
+    Message(msg) -> Some(msg)
+    _ -> None
+  }
+}
 
 /// Connect to Twitch EventSub WebSocket and start listening for events.
 ///
