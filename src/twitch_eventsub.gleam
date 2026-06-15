@@ -2,8 +2,8 @@ import gleam/option.{type Option, None, Some}
 import internal/manager
 import types.{
   type ChatMessage, type Config as TypesConfig, type Error as TypesError,
-  type Event as TypesEvent, type Subscription as TypesSubscription,
-  Config, Message, Subscription,
+  type Event as TypesEvent, type Subscription as TypesSubscription, Config,
+  Message, Subscription,
 }
 
 pub type Connection =

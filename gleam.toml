@@ -1,5 +1,5 @@
 name = "twitch_eventsub"
-version = "0.1.0"
+version = "0.1.1"
 description = "A robust Twitch EventSub WebSocket client library for Gleam with auto-reconnect and keepalive monitoring."
 licences = ["Apache-2.0"]
 repository = { type = "github", user = "ksnitsky", repo = "twitch_eventsub" }
