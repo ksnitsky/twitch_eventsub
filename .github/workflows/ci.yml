@@ -4,7 +4,6 @@ on:
   push:
     branches: [ main, master ]
   pull_request:
-    branches: [ main, master ]
 
 jobs:
   test:
@@ -22,8 +21,12 @@ jobs:
     - name: Download dependencies
       run: gleam deps download
 
+    - name: Check formatting
+      run: gleam format --check src test
+
     - name: Run tests
       run: gleam test
 
     - name: Build documentation
+      if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
       run: gleam docs build
